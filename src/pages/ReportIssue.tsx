@@ -10,12 +10,67 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { AlertCircle, Upload } from "lucide-react";
 
+// County to wards mapping
+const countyWards: Record<string, string[]> = {
+  "Nairobi": ["Westlands", "Dagoretti North", "Dagoretti South", "Langata", "Kibra", "Roysambu", "Kasarani", "Ruaraka", "Embakasi South", "Embakasi North", "Embakasi Central", "Embakasi East", "Embakasi West", "Makadara", "Kamukunji", "Starehe", "Mathare"],
+  "Mombasa": ["Changamwe", "Jomvu", "Kisauni", "Nyali", "Likoni", "Mvita"],
+  "Kisumu": ["Kisumu East", "Kisumu West", "Kisumu Central", "Seme", "Nyando", "Muhoroni", "Nyakach"],
+  "Nakuru": ["Nakuru Town East", "Nakuru Town West", "Bahati", "Gilgil", "Kuresoi North", "Kuresoi South", "Molo", "Naivasha", "Njoro", "Rongai", "Subukia"],
+  "Uasin Gishu": ["Ainabkoi", "Kapseret", "Kesses", "Moiben", "Soy", "Turbo"],
+  "Kiambu": ["Gatundu North", "Gatundu South", "Githunguri", "Juja", "Kabete", "Kiambaa", "Kiambu", "Kikuyu", "Limuru", "Ruiru", "Thika Town", "Lari"],
+  "Kakamega": ["Butere", "Kakamega Central", "Kakamega East", "Kakamega North", "Kakamega South", "Khwisero", "Likuyani", "Lugari", "Lurambi", "Matete", "Matungu", "Mumias East", "Mumias West", "Navakholo", "Shinyalu"],
+  "Machakos": ["Athi River", "Kangundo", "Kathiani", "Machakos Town", "Masinga", "Matungulu", "Mavoko", "Mwala", "Yatta"],
+  "Meru": ["Buuri", "Central Imenti", "Igembe Central", "Igembe North", "Igembe South", "Imenti North", "Imenti South", "Tigania East", "Tigania West"],
+  "Nyeri": ["Kieni", "Mathira", "Mukurweini", "Nyeri Town", "Othaya", "Tetu"],
+  "Bungoma": ["Bumula", "Kabuchai", "Kanduyi", "Kimilili", "Mt. Elgon", "Sirisia", "Tongaren", "Webuye East", "Webuye West"],
+  "Kilifi": ["Genze", "Kaloleni", "Kilifi North", "Kilifi South", "Magarini", "Malindi", "Rabai"],
+  "Trans Nzoia": ["Cherangany", "Endebess", "Kiminini", "Kwanza", "Saboti"],
+  "Kajiado": ["Kajiado Central", "Kajiado East", "Kajiado North", "Kajiado South", "Kajiado West"],
+  "Busia": ["Budalangi", "Butula", "Funyula", "Nambale", "Teso North", "Teso South"],
+  // Add more counties as needed
+  "Baringo": ["Baringo Central", "Baringo North", "Baringo South", "Eldama Ravine", "Mogotio", "Tiaty"],
+  "Bomet": ["Bomet Central", "Bomet East", "Chepalungu", "Konoin", "Sotik"],
+  "Embu": ["Manyatta", "Mbeere North", "Mbeere South", "Runyenjes"],
+  "Garissa": ["Balambala", "Dadaab", "Fafi", "Garissa Township", "Hulugho", "Ijara", "Lagdera Constituency"],
+  "Homa Bay": ["Homa Bay Town", "Kabondo Kasipul", "Karachuonyo", "Kasipul", "Mbita", "Ndhiwa", "Rangwe", "Suba"],
+  "Isiolo": ["Central", "Garbatulla", "Merti", "North"],
+  "Kericho": ["Ainamoi", "Belgut", "Bureti", "Kipkelion East", "Kipkelion West", "Soin/Sigowet"],
+  "Kirinyaga": ["Kirinyaga Central", "Kirinyaga East", "Kirinyaga West", "Mwea"],
+  "Kisii": ["Bonchari", "Bomachoge Borabu", "Bobasi", "Bomachoge Chache", "Kitutu Chache North", "Kitutu Chache South", "Nyaribari Chache", "Nyaribari Masaba", "South Mugirango"],
+  "Kwale": ["Kinango", "Lungalunga", "Matuga", "Msambweni"],
+  "Laikipia": ["Laikipia East", "Laikipia North", "Laikipia West"],
+  "Lamu": ["Lamu East", "Lamu West"],
+  "Makueni": ["Kaiti", "Kibwezi East", "Kibwezi West", "Kilome", "Makueni", "Mbooni"],
+  "Mandera": ["Banissa", "Lafey", "Mandera East", "Mandera North", "Mandera South", "Mandera West"],
+  "Marsabit": ["Laisamis", "Moyale", "North Horr", "Saku"],
+  "Migori": ["Awendo", "Kuria East", "Kuria West", "Mabera", "Ntimaru", "Rongo", "Suna East", "Suna West", "Uriri"],
+  "Murang'a": ["Kandara", "Kangema", "Kigumo", "Kiharu", "Mathioya", "Maragwa"],
+  "Narok": ["Narok East", "Narok North", "Narok South", "Narok West", "Transmara East", "Transmara West"],
+  "Nandi": ["Aldai", "Chesumei", "Emgwen", "Mosop", "Nandi Hills", "Tinderet"],
+  "Nyandarua": ["Kinangop", "Kipipiri", "Ndaragwa", "Ol Jorok", "Ol Kalou"],
+  "Nyamira": ["Borabu", "Kitutu Masaba", "North Mugirango", "West Mugirango"],
+  "Samburu": ["Samburu Central", "Samburu East", "Samburu North"],
+  "Siaya": ["Alego Usonga", "Bondo", "Gem", "Rarieda", "Ugenya", "Ugunja"],
+  "Taita Taveta": ["Mwatate", "Taveta", "Voi", "Wundanyi"],
+  "Tana River": ["Bura", "Galole", "Garsen"],
+  "Tharaka Nithi": ["Chuka/Igambang'ombe", "Maara", "Tharaka"],
+  "Turkana": ["Loima", "Turkana Central", "Turkana East", "Turkana North", "Turkana South", "Turkana West"],
+  "Vihiga": ["Emuhaya", "Hamisi", "Luanda", "Sabatia", "Vihiga"],
+  "Wajir": ["Eldas", "Tarbaj", "Wajir East", "Wajir North", "Wajir South", "Wajir West"],
+  "West Pokot": ["Kapenguria", "Kacheliba", "Pokot South", "Sigor"],
+  "Elgeyo Marakwet": ["Keiyo North", "Keiyo South", "Marakwet East", "Marakwet West"],
+};
+
+const COUNTIES = Object.keys(countyWards).sort();
+
 const ReportIssue = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     category: "",
+    county: "",
+    ward: "",
     location: "",
     reportedBy: "",
   });
@@ -24,7 +79,7 @@ const ReportIssue = () => {
     e.preventDefault();
     
     // Basic validation
-    if (!formData.title || !formData.description || !formData.category || !formData.location || !formData.reportedBy) {
+    if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.ward || !formData.reportedBy) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -39,7 +94,13 @@ const ReportIssue = () => {
   };
 
   const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData(prev => {
+      // Reset ward when county changes
+      if (field === "county") {
+        return { ...prev, [field]: value, ward: "" };
+      }
+      return { ...prev, [field]: value };
+    });
   };
 
   return (
@@ -98,16 +159,51 @@ const ReportIssue = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="location">Location *</Label>
+                  <Label htmlFor="county">County *</Label>
+                  <Select value={formData.county} onValueChange={(value) => handleChange("county", value)}>
+                    <SelectTrigger id="county">
+                      <SelectValue placeholder="Select your county" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {COUNTIES.map((county) => (
+                        <SelectItem key={county} value={county}>
+                          {county}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ward">Ward *</Label>
+                  <Select 
+                    value={formData.ward} 
+                    onValueChange={(value) => handleChange("ward", value)}
+                    disabled={!formData.county}
+                  >
+                    <SelectTrigger id="ward">
+                      <SelectValue placeholder={formData.county ? "Select your ward" : "Select county first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formData.county && countyWards[formData.county]?.map((ward) => (
+                        <SelectItem key={ward} value={ward}>
+                          {ward}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="location">Specific Location (Optional)</Label>
                   <Input
                     id="location"
-                    placeholder="e.g., Moi Avenue, Nairobi"
+                    placeholder="e.g., Near Moi Avenue Junction, opposite City Hall"
                     value={formData.location}
                     onChange={(e) => handleChange("location", e.target.value)}
-                    required
                   />
                   <p className="text-xs text-muted-foreground">
-                    Be as specific as possible with landmarks or street names
+                    Add landmarks or street names for more precise location
                   </p>
                 </div>
 
