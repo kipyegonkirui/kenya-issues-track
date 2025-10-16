@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AlertCircle, Upload } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { AuthModal } from "@/components/AuthModal";
 
 // County to constituencies to wards mapping
 const countyData: Record<string, Record<string, string[]>> = {
@@ -51,6 +53,8 @@ const COUNTIES = Object.keys(countyData).sort();
 
 const ReportIssue = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -65,14 +69,32 @@ const ReportIssue = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Check if user is authenticated
+    if (!user) {
+      setAuthModalOpen(true);
+      toast.error("Please sign in to report an issue");
+      return;
+    }
+    
     // Basic validation
     if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.constituency || !formData.ward || !formData.reportedBy) {
       toast.error("Please fill in all required fields");
       return;
     }
 
-    // Mock submission - will be replaced with real backend
-    console.log("Issue submitted:", formData);
+    // Save issue locally (will be replaced with backend)
+    const issues = JSON.parse(localStorage.getItem("issues") || "[]");
+    const newIssue = {
+      id: Date.now().toString(),
+      ...formData,
+      userId: user.uid,
+      userEmail: user.email,
+      status: "pending",
+      createdAt: new Date().toISOString(),
+    };
+    issues.push(newIssue);
+    localStorage.setItem("issues", JSON.stringify(issues));
+    
     toast.success("Issue reported successfully!");
     
     // Redirect to issues page
@@ -280,6 +302,8 @@ const ReportIssue = () => {
           <p>&copy; 2025 Kenya Issues. Empowering citizens for better communities.</p>
         </div>
       </footer>
+      
+      <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
     </div>
   );
 };
