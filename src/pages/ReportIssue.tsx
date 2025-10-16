@@ -70,7 +70,7 @@ const ReportIssue = () => {
     description: "",
     category: "",
     county: "",
-    ward: "",
+    constituency: "",
     location: "",
     reportedBy: "",
   });
@@ -79,7 +79,7 @@ const ReportIssue = () => {
     e.preventDefault();
     
     // Basic validation
-    if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.ward || !formData.reportedBy) {
+    if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.constituency || !formData.reportedBy) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -95,9 +95,9 @@ const ReportIssue = () => {
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => {
-      // Reset ward when county changes
+      // Reset constituency when county changes
       if (field === "county") {
-        return { ...prev, [field]: value, ward: "" };
+        return { ...prev, [field]: value, constituency: "" };
       }
       return { ...prev, [field]: value };
     });
@@ -175,19 +175,19 @@ const ReportIssue = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="ward">Ward *</Label>
+                  <Label htmlFor="constituency">Constituency *</Label>
                   <Select 
-                    value={formData.ward} 
-                    onValueChange={(value) => handleChange("ward", value)}
+                    value={formData.constituency} 
+                    onValueChange={(value) => handleChange("constituency", value)}
                     disabled={!formData.county}
                   >
-                    <SelectTrigger id="ward">
-                      <SelectValue placeholder={formData.county ? "Select your ward" : "Select county first"} />
+                    <SelectTrigger id="constituency">
+                      <SelectValue placeholder={formData.county ? "Select your constituency" : "Select county first"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {formData.county && countyWards[formData.county]?.map((ward) => (
-                        <SelectItem key={ward} value={ward}>
-                          {ward}
+                      {formData.county && countyWards[formData.county]?.map((constituency) => (
+                        <SelectItem key={constituency} value={constituency}>
+                          {constituency}
                         </SelectItem>
                       ))}
                     </SelectContent>
