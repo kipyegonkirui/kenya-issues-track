@@ -9,6 +9,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { AlertCircle, Upload } from "lucide-react";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
 // County to constituencies to wards mapping
 const countyData: Record<string, Record<string, string[]>> = {
@@ -62,7 +64,7 @@ const ReportIssue = () => {
     reportedBy: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
     // Basic validation
@@ -71,13 +73,25 @@ const ReportIssue = () => {
       return;
     }
 
-    // In production, this would send data to a backend
-    toast.success("Issue reported successfully!");
-    
-    // Redirect to issues page
-    setTimeout(() => {
-      navigate("/issues");
-    }, 1500);
+    try {
+      // Save to Firebase Firestore
+      await addDoc(collection(db, "issues"), {
+        ...formData,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      toast.success("Issue reported successfully!");
+      
+      // Redirect to issues page
+      setTimeout(() => {
+        navigate("/issues");
+      }, 1500);
+    } catch (error) {
+      console.error("Error submitting issue:", error);
+      toast.error("Failed to submit issue. Please try again.");
+    }
   };
 
   const handleChange = (field: string, value: string) => {
