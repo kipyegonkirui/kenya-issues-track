@@ -10,58 +10,44 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { AlertCircle, Upload } from "lucide-react";
 
-// County to wards mapping
-const countyWards: Record<string, string[]> = {
-  "Nairobi": ["Westlands", "Dagoretti North", "Dagoretti South", "Langata", "Kibra", "Roysambu", "Kasarani", "Ruaraka", "Embakasi South", "Embakasi North", "Embakasi Central", "Embakasi East", "Embakasi West", "Makadara", "Kamukunji", "Starehe", "Mathare"],
-  "Mombasa": ["Changamwe", "Jomvu", "Kisauni", "Nyali", "Likoni", "Mvita"],
-  "Kisumu": ["Kisumu East", "Kisumu West", "Kisumu Central", "Seme", "Nyando", "Muhoroni", "Nyakach"],
-  "Nakuru": ["Nakuru Town East", "Nakuru Town West", "Bahati", "Gilgil", "Kuresoi North", "Kuresoi South", "Molo", "Naivasha", "Njoro", "Rongai", "Subukia"],
-  "Uasin Gishu": ["Ainabkoi", "Kapseret", "Kesses", "Moiben", "Soy", "Turbo"],
-  "Kiambu": ["Gatundu North", "Gatundu South", "Githunguri", "Juja", "Kabete", "Kiambaa", "Kiambu", "Kikuyu", "Limuru", "Ruiru", "Thika Town", "Lari"],
-  "Kakamega": ["Butere", "Kakamega Central", "Kakamega East", "Kakamega North", "Kakamega South", "Khwisero", "Likuyani", "Lugari", "Lurambi", "Matete", "Matungu", "Mumias East", "Mumias West", "Navakholo", "Shinyalu"],
-  "Machakos": ["Athi River", "Kangundo", "Kathiani", "Machakos Town", "Masinga", "Matungulu", "Mavoko", "Mwala", "Yatta"],
-  "Meru": ["Buuri", "Central Imenti", "Igembe Central", "Igembe North", "Igembe South", "Imenti North", "Imenti South", "Tigania East", "Tigania West"],
-  "Nyeri": ["Kieni", "Mathira", "Mukurweini", "Nyeri Town", "Othaya", "Tetu"],
-  "Bungoma": ["Bumula", "Kabuchai", "Kanduyi", "Kimilili", "Mt. Elgon", "Sirisia", "Tongaren", "Webuye East", "Webuye West"],
-  "Kilifi": ["Genze", "Kaloleni", "Kilifi North", "Kilifi South", "Magarini", "Malindi", "Rabai"],
-  "Trans Nzoia": ["Cherangany", "Endebess", "Kiminini", "Kwanza", "Saboti"],
-  "Kajiado": ["Kajiado Central", "Kajiado East", "Kajiado North", "Kajiado South", "Kajiado West"],
-  "Busia": ["Budalangi", "Butula", "Funyula", "Nambale", "Teso North", "Teso South"],
-  // Add more counties as needed
-  "Baringo": ["Baringo Central", "Baringo North", "Baringo South", "Eldama Ravine", "Mogotio", "Tiaty"],
-  "Bomet": ["Bomet Central", "Bomet East", "Chepalungu", "Konoin", "Sotik"],
-  "Embu": ["Manyatta", "Mbeere North", "Mbeere South", "Runyenjes"],
-  "Garissa": ["Balambala", "Dadaab", "Fafi", "Garissa Township", "Hulugho", "Ijara", "Lagdera Constituency"],
-  "Homa Bay": ["Homa Bay Town", "Kabondo Kasipul", "Karachuonyo", "Kasipul", "Mbita", "Ndhiwa", "Rangwe", "Suba"],
-  "Isiolo": ["Central", "Garbatulla", "Merti", "North"],
-  "Kericho": ["Ainamoi", "Belgut", "Bureti", "Kipkelion East", "Kipkelion West", "Soin/Sigowet"],
-  "Kirinyaga": ["Kirinyaga Central", "Kirinyaga East", "Kirinyaga West", "Mwea"],
-  "Kisii": ["Bonchari", "Bomachoge Borabu", "Bobasi", "Bomachoge Chache", "Kitutu Chache North", "Kitutu Chache South", "Nyaribari Chache", "Nyaribari Masaba", "South Mugirango"],
-  "Kwale": ["Kinango", "Lungalunga", "Matuga", "Msambweni"],
-  "Laikipia": ["Laikipia East", "Laikipia North", "Laikipia West"],
-  "Lamu": ["Lamu East", "Lamu West"],
-  "Makueni": ["Kaiti", "Kibwezi East", "Kibwezi West", "Kilome", "Makueni", "Mbooni"],
-  "Mandera": ["Banissa", "Lafey", "Mandera East", "Mandera North", "Mandera South", "Mandera West"],
-  "Marsabit": ["Laisamis", "Moyale", "North Horr", "Saku"],
-  "Migori": ["Awendo", "Kuria East", "Kuria West", "Mabera", "Ntimaru", "Rongo", "Suna East", "Suna West", "Uriri"],
-  "Murang'a": ["Kandara", "Kangema", "Kigumo", "Kiharu", "Mathioya", "Maragwa"],
-  "Narok": ["Narok East", "Narok North", "Narok South", "Narok West", "Transmara East", "Transmara West"],
-  "Nandi": ["Aldai", "Chesumei", "Emgwen", "Mosop", "Nandi Hills", "Tinderet"],
-  "Nyandarua": ["Kinangop", "Kipipiri", "Ndaragwa", "Ol Jorok", "Ol Kalou"],
-  "Nyamira": ["Borabu", "Kitutu Masaba", "North Mugirango", "West Mugirango"],
-  "Samburu": ["Samburu Central", "Samburu East", "Samburu North"],
-  "Siaya": ["Alego Usonga", "Bondo", "Gem", "Rarieda", "Ugenya", "Ugunja"],
-  "Taita Taveta": ["Mwatate", "Taveta", "Voi", "Wundanyi"],
-  "Tana River": ["Bura", "Galole", "Garsen"],
-  "Tharaka Nithi": ["Chuka/Igambang'ombe", "Maara", "Tharaka"],
-  "Turkana": ["Loima", "Turkana Central", "Turkana East", "Turkana North", "Turkana South", "Turkana West"],
-  "Vihiga": ["Emuhaya", "Hamisi", "Luanda", "Sabatia", "Vihiga"],
-  "Wajir": ["Eldas", "Tarbaj", "Wajir East", "Wajir North", "Wajir South", "Wajir West"],
-  "West Pokot": ["Kapenguria", "Kacheliba", "Pokot South", "Sigor"],
-  "Elgeyo Marakwet": ["Keiyo North", "Keiyo South", "Marakwet East", "Marakwet West"],
+// County to constituencies to wards mapping
+const countyData: Record<string, Record<string, string[]>> = {
+  "Nairobi": {
+    "Westlands": ["Kitisuru", "Parklands/Highridge", "Karura", "Kangemi", "Mountain View"],
+    "Dagoretti North": ["Kilimani", "Kawangware", "Gatina", "Kileleshwa", "Kabiro"],
+    "Dagoretti South": ["Mutuini", "Ngando", "Riruta", "Uthiru/Ruthimitu", "Waithaka"],
+    "Langata": ["Karen", "Nairobi West", "Mugumo-ini", "South C", "Nyayo Highrise"],
+    "Kibra": ["Laini Saba", "Lindi", "Makina", "Woodley/Kenyatta Golf Course", "Sarang'ombe"],
+  },
+  "Mombasa": {
+    "Changamwe": ["Port Reitz", "Kipevu", "Airport", "Changamwe", "Chaani"],
+    "Jomvu": ["Jomvu Kuu", "Miritini", "Mikindani"],
+    "Kisauni": ["Mjambere", "Junda", "Bamburi", "Mwakirunge", "Mtopanga", "Magogoni", "Shanzu"],
+    "Nyali": ["Frere Town", "Ziwa La Ng'ombe", "Mkomani", "Kongowea", "Kadzandani"],
+  },
+  "Kisumu": {
+    "Kisumu East": ["Kajulu", "Kolwa East", "Manyatta B", "Nyalenda A"],
+    "Kisumu West": ["Central Kisumu", "Kisumu North", "West Kisumu", "North West Kisumu", "South West Kisumu"],
+    "Kisumu Central": ["Railways", "Migosi", "Shaurimoyo Kaloleni", "Market Milimani", "Kondele"],
+  },
+  "Nakuru": {
+    "Nakuru Town East": ["Biashara", "Kivumbini", "Flamingo", "Menengai West", "Nakuru East"],
+    "Nakuru Town West": ["Barut", "London", "Kaptembwo", "Kapkures", "Rhoda"],
+    "Naivasha": ["Naivasha East", "Viwandani", "Hells Gate", "Olkaria", "Naivasha West"],
+  },
+  "Uasin Gishu": {
+    "Ainabkoi": ["Ainabkoi/Olare", "Kapsoya", "Kaptagat", "Simat/Kapseret"],
+    "Kapseret": ["Simat/Kapseret", "Kipkenyo", "Ngeria", "Megun"],
+    "Kesses": ["Racecourse", "Cheptiret/Kipchamo", "Tulwet/Chuiyat", "Tarakwa"],
+  },
+  "Kiambu": {
+    "Juja": ["Murera", "Theta", "Juja", "Witeithie", "Kalimoni"],
+    "Thika Town": ["Township", "Kamenu", "Hospital", "Gatuanyaga", "Ngoliba"],
+    "Ruiru": ["Biashara", "Gatongora", "Kahawa Sukari", "Kahawa Wendani", "Kiuu", "Mwiki", "Mwihoko"],
+  },
 };
 
-const COUNTIES = Object.keys(countyWards).sort();
+const COUNTIES = Object.keys(countyData).sort();
 
 const ReportIssue = () => {
   const navigate = useNavigate();
@@ -71,6 +57,7 @@ const ReportIssue = () => {
     category: "",
     county: "",
     constituency: "",
+    ward: "",
     location: "",
     reportedBy: "",
   });
@@ -79,7 +66,7 @@ const ReportIssue = () => {
     e.preventDefault();
     
     // Basic validation
-    if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.constituency || !formData.reportedBy) {
+    if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.constituency || !formData.ward || !formData.reportedBy) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -95,9 +82,13 @@ const ReportIssue = () => {
 
   const handleChange = (field: string, value: string) => {
     setFormData(prev => {
-      // Reset constituency when county changes
+      // Reset constituency and ward when county changes
       if (field === "county") {
-        return { ...prev, [field]: value, constituency: "" };
+        return { ...prev, [field]: value, constituency: "", ward: "" };
+      }
+      // Reset ward when constituency changes
+      if (field === "constituency") {
+        return { ...prev, [field]: value, ward: "" };
       }
       return { ...prev, [field]: value };
     });
@@ -185,9 +176,29 @@ const ReportIssue = () => {
                       <SelectValue placeholder={formData.county ? "Select your constituency" : "Select county first"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {formData.county && countyWards[formData.county]?.map((constituency) => (
+                      {formData.county && Object.keys(countyData[formData.county] || {}).map((constituency) => (
                         <SelectItem key={constituency} value={constituency}>
                           {constituency}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="ward">Ward *</Label>
+                  <Select 
+                    value={formData.ward} 
+                    onValueChange={(value) => handleChange("ward", value)}
+                    disabled={!formData.constituency}
+                  >
+                    <SelectTrigger id="ward">
+                      <SelectValue placeholder={formData.constituency ? "Select your ward" : "Select constituency first"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {formData.county && formData.constituency && countyData[formData.county]?.[formData.constituency]?.map((ward) => (
+                        <SelectItem key={ward} value={ward}>
+                          {ward}
                         </SelectItem>
                       ))}
                     </SelectContent>
