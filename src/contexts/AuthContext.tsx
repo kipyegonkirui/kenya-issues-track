@@ -3,6 +3,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 interface User {
   uid: string;
   email: string;
+  role?: 'user' | 'admin';
 }
 
 interface AuthContextType {
@@ -45,7 +46,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       throw new Error("Invalid email or password");
     }
     
-    const authUser = { uid: foundUser.uid, email: foundUser.email };
+    const authUser = { uid: foundUser.uid, email: foundUser.email, role: foundUser.role || 'user' };
     localStorage.setItem("authUser", JSON.stringify(authUser));
     setUser(authUser);
   };
@@ -63,12 +64,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       uid: Date.now().toString(),
       email,
       password,
+      role: 'user' as const, // Default role is user
     };
     
     users.push(newUser);
     localStorage.setItem("users", JSON.stringify(users));
     
-    const authUser = { uid: newUser.uid, email: newUser.email };
+    const authUser = { uid: newUser.uid, email: newUser.email, role: newUser.role };
     localStorage.setItem("authUser", JSON.stringify(authUser));
     setUser(authUser);
   };

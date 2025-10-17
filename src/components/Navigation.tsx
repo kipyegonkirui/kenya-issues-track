@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom";
 import { Button } from "./ui/button";
-import { AlertCircle, Home } from "lucide-react";
+import { AlertCircle, Home, ShieldCheck } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Navigation = () => {
+  const { user } = useAuth();
+  
   return (
     <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
@@ -28,6 +31,14 @@ const Navigation = () => {
               Report Issue
             </Button>
           </Link>
+          {user?.role === 'admin' && (
+            <Link to="/admin/dashboard">
+              <Button variant="secondary" size="sm">
+                <ShieldCheck className="h-4 w-4 mr-2" />
+                Admin
+              </Button>
+            </Link>
+          )}
         </div>
       </div>
     </nav>
