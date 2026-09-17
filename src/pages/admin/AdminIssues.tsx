@@ -1,296 +1,510 @@
-import { useState, useMemo } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState, useEffect } from "react";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+    collection,
+    getDocs,
+    doc,
+    updateDoc,
+    setDoc,
+    addDoc,
+    deleteDoc,
+    serverTimestamp,
+    Timestamp,
+} from "firebase/firestore";
+import { EmailAuthProvider, reauthenticateWithCredential } from "firebase/auth";
+import { db, auth } from "@/firebase";
+import {
+    Card,
+    CardHeader,
+    CardTitle,
+    CardContent
+} from "@/components/ui/card";
+import {
+    Table,
+    TableHeader,
+    TableHead,
+    TableBody,
+    TableRow,
+    TableCell
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Eye, ArrowUpDown } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
-import { useIssuesStorage } from "@/hooks/useIssuesStorage";
-import { IssueDetailDialog } from "@/components/admin/IssueDetailDialog";
-import { Issue, IssueStatus } from "@/types/issue";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle
+} from "@/components/ui/dialog";
+import {
+    Select,
+    SelectTrigger,
+    SelectValue,
+    SelectContent,
+    SelectItem
+} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Loader2, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
-type SortField = 'title' | 'category' | 'status' | 'location' | 'reportedDate';
-type SortDirection = 'asc' | 'desc';
+// 🔔 Notification helper
+const sendNotification = async (
+    userEmail: string,
+    issueId: string,
+    title: string,
+    message: string
+) => {
+    try {
+        const notifRef = doc(db, "notifications", issueId);
+        await setDoc(
+            notifRef,
+            {
+                userId: userEmail,
+                issueId,
+                title,
+                message,
+                read: false,
+                timestamp: serverTimestamp(),
+            },
+            { merge: true }
+        );
+    } catch (error) {
+        console.error("Error sending notification:", error);
+    }
+};
+
+interface StatusHistoryEntry {
+    status: string;
+    note: string;
+    actorUid?: string;
+    actorName: string;
+    actorRole: string;
+    at?: any;
+}
+
+interface Issue {
+    id: string;
+    title: string;
+    description: string;
+    category: string;
+    county: string;
+    ward: string;
+    reportedBy: string;
+    createdAt?: any;
+    status?: string;
+    department?: string;
+    statusHistory?: StatusHistoryEntry[];
+}
 
 const AdminIssues = () => {
-  const { issues, updateIssue, deleteIssue, addNote } = useIssuesStorage();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
-  const [sortField, setSortField] = useState<SortField>('reportedDate');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+    const [issues, setIssues] = useState<Issue[]>([]);
+    const [departmentOptions, setDepartmentOptions] = useState<string[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
+    const [statusNote, setStatusNote] = useState("");
+    const [filter, setFilter] = useState("all");
+    const [adminPassword, setAdminPassword] = useState("");
+    const [processing, setProcessing] = useState(false);
+    const [deleteMode, setDeleteMode] = useState(false);
 
-  const filteredAndSortedIssues = useMemo(() => {
-    let filtered = issues.filter((issue) => {
-      const matchesSearch =
-        issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        issue.location.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesStatus = statusFilter === "all" || issue.status === statusFilter;
-      const matchesCategory = categoryFilter === "all" || issue.category === categoryFilter;
-      
-      let matchesDateRange = true;
-      if (dateFrom) {
-        matchesDateRange = matchesDateRange && issue.reportedDate >= dateFrom;
-      }
-      if (dateTo) {
-        matchesDateRange = matchesDateRange && issue.reportedDate <= dateTo;
-      }
-      
-      return matchesSearch && matchesStatus && matchesCategory && matchesDateRange;
-    });
+    // 🔹 Fetch issues + the real department list (same source AdminUsers uses,
+    // so an issue's department always matches a value officers can actually be
+    // assigned to).
+    useEffect(() => {
+        const fetchIssues = async () => {
+            try {
+                const querySnapshot = await getDocs(collection(db, "issues"));
+                const data = querySnapshot.docs.map((docSnap) => ({
+                    id: docSnap.id,
+                    ...docSnap.data(),
+                })) as Issue[];
+                setIssues(data);
+            } catch (error) {
+                console.error("Error fetching issues:", error);
+            } finally {
+                setLoading(false);
+            }
+        };
+        const fetchDepartments = async () => {
+            try {
+                const snap = await getDocs(collection(db, "departments"));
+                setDepartmentOptions(snap.docs.map((d) => d.data().name).filter(Boolean));
+            } catch (error) {
+                console.error("Error fetching departments:", error);
+            }
+        };
+        fetchIssues();
+        fetchDepartments();
+    }, []);
 
-    // Sort
-    filtered.sort((a, b) => {
-      let aValue = a[sortField];
-      let bValue = b[sortField];
-      
-      if (typeof aValue === 'string') aValue = aValue.toLowerCase();
-      if (typeof bValue === 'string') bValue = bValue.toLowerCase();
-      
-      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
-      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
+    const filteredIssues =
+        filter === "all" ? issues : issues.filter((i) => i.status === filter);
 
-    return filtered;
-  }, [issues, searchQuery, statusFilter, categoryFilter, dateFrom, dateTo, sortField, sortDirection]);
+    // 🔹 Confirm admin action
+    const handleConfirm = async () => {
+        if (!selectedIssue) return;
 
-  const getStatusColor = (status: IssueStatus) => {
-    const colors = {
-      pending: "bg-warning/10 text-warning hover:bg-warning/20",
-      "in-progress": "bg-info/10 text-info hover:bg-info/20",
-      resolved: "bg-success/10 text-success hover:bg-success/20",
+        // 🚫 Prevent modifying resolved issues
+        if (selectedIssue.status === "resolved" && !deleteMode) {
+            toast.warning("This issue has already been resolved and cannot be modified.");
+            return;
+        }
+
+        if (!auth.currentUser) {
+            toast.error("No authenticated admin found.");
+            return;
+        }
+        if (!adminPassword.trim()) {
+            toast.error("Please enter your password.");
+            return;
+        }
+
+        setProcessing(true);
+
+        try {
+            const cred = EmailAuthProvider.credential(
+                auth.currentUser.email!,
+                adminPassword
+            );
+            await reauthenticateWithCredential(auth.currentUser, cred);
+
+            const issueRef = doc(db, "issues", selectedIssue.id);
+
+            if (deleteMode) {
+                // 🗃️ Move issue to archived collection
+                const { id, ...archivedData } = selectedIssue;
+                await addDoc(collection(db, "archived_issues"), {
+                    ...archivedData,
+                    archivedAt: serverTimestamp(),
+                    archivedBy: auth.currentUser.email,
+                });
+                await deleteDoc(issueRef);
+
+                await sendNotification(
+                    selectedIssue.reportedBy,
+                    selectedIssue.id,
+                    "Issue Archived",
+                    `⚠️ Your issue "${selectedIssue.title}" was archived.`
+                );
+
+                setIssues((prev) => prev.filter((i) => i.id !== selectedIssue.id));
+                toast.success("Issue archived successfully.");
+            } else {
+                const statusChanged = selectedIssue.status !== issues.find((i) => i.id === selectedIssue.id)?.status;
+                if (statusChanged && !statusNote.trim()) {
+                    toast.error("Please add a note explaining this status change — it's shown publicly on the issue.");
+                    setProcessing(false);
+                    return;
+                }
+
+                const historyEntry: StatusHistoryEntry = {
+                    status: selectedIssue.status || "pending",
+                    note: statusNote.trim() || "Department reassigned.",
+                    actorUid: auth.currentUser!.uid,
+                    actorName: auth.currentUser!.displayName || auth.currentUser!.email || "Admin",
+                    actorRole: "admin",
+                    at: Timestamp.now(),
+                };
+
+                // ✏️ Update issue — append to the audit trail rather than overwrite
+                await updateDoc(issueRef, {
+                    status: selectedIssue.status,
+                    department: selectedIssue.department || "",
+                    statusHistory: [...(selectedIssue.statusHistory || []), historyEntry],
+                });
+
+                setIssues((prev) =>
+                    prev.map((i) =>
+                        i.id === selectedIssue.id
+                            ? { ...selectedIssue, statusHistory: [...(selectedIssue.statusHistory || []), historyEntry] }
+                            : i
+                    )
+                );
+
+                toast.success("Issue updated successfully.");
+
+                // 🔔 Notification logic
+                let title = "Issue Update";
+                let message = `Your issue "${selectedIssue.title}" has been updated.`;
+
+                if (selectedIssue.status === "in-progress") {
+                    title = "Issue In Progress";
+                    message = `🚧 Your issue "${selectedIssue.title}" is being handled by the ${selectedIssue.department} department.`;
+                } else if (selectedIssue.status === "resolved") {
+                    title = "Issue Resolved";
+                    message = `✅ Your issue "${selectedIssue.title}" has been resolved successfully.`;
+                } else if (selectedIssue.status === "pending") {
+                    title = "Issue Pending Review";
+                    message = `🕓 Your issue "${selectedIssue.title}" is pending review and will be processed soon.`;
+                }
+
+                await sendNotification(
+                    selectedIssue.reportedBy,
+                    selectedIssue.id,
+                    title,
+                    message
+                );
+            }
+
+            setSelectedIssue(null);
+            setAdminPassword("");
+            setStatusNote("");
+            setDeleteMode(false);
+        } catch (error: any) {
+            console.error("Error confirming admin:", error);
+            toast.error("Password incorrect or authentication failed.");
+        } finally {
+            setProcessing(false);
+        }
     };
-    return colors[status];
-  };
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
-  const handleStatusChange = (issueId: string, newStatus: IssueStatus) => {
-    updateIssue(issueId, { status: newStatus });
-    toast({
-      title: "Status Updated",
-      description: `Issue status changed to ${newStatus}`,
-    });
-  };
-
-  const handleDelete = (issueId: string) => {
-    deleteIssue(issueId);
-    toast({
-      title: "Issue Deleted",
-      description: "The issue has been permanently deleted",
-    });
-  };
-
-  const handleUpdate = (issueId: string, updates: Partial<Issue>) => {
-    updateIssue(issueId, updates);
-    toast({
-      title: "Issue Updated",
-      description: "Changes have been saved",
-    });
-  };
-
-  const handleAddNote = (issueId: string, content: string) => {
-    addNote(issueId, content);
-    toast({
-      title: "Note Added",
-      description: "Internal note has been added to the issue",
-    });
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Manage Issues</h1>
-        <p className="text-muted-foreground">View and manage all reported issues</p>
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search issues..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue placeholder="Filter by category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  <SelectItem value="roads">Roads</SelectItem>
-                  <SelectItem value="water">Water</SelectItem>
-                  <SelectItem value="electricity">Electricity</SelectItem>
-                  <SelectItem value="waste">Waste</SelectItem>
-                  <SelectItem value="security">Security</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full md:w-48">
-                  <SelectValue placeholder="Filter by status" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="in-progress">In Progress</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                </SelectContent>
-              </Select>
+    if (loading)
+        return (
+            <div className="flex justify-center items-center h-64">
+                <Loader2 className="animate-spin mr-2" />
+                Loading issues...
             </div>
-            
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1">
-                <Input
-                  type="date"
-                  placeholder="From date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                />
-              </div>
-              <div className="flex-1">
-                <Input
-                  type="date"
-                  placeholder="To date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                />
-              </div>
-              {(dateFrom || dateTo) && (
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDateFrom("");
-                    setDateTo("");
-                  }}
-                >
-                  Clear Dates
-                </Button>
-              )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        );
 
-      {/* Issues Table */}
-      <Card>
-        <CardContent className="pt-6">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort('title')} className="gap-2 font-semibold">
-                    Title <ArrowUpDown className="h-4 w-4" />
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort('category')} className="gap-2 font-semibold">
-                    Category <ArrowUpDown className="h-4 w-4" />
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort('location')} className="gap-2 font-semibold">
-                    Location <ArrowUpDown className="h-4 w-4" />
-                  </Button>
-                </TableHead>
-                <TableHead>Reported By</TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort('reportedDate')} className="gap-2 font-semibold">
-                    Date <ArrowUpDown className="h-4 w-4" />
-                  </Button>
-                </TableHead>
-                <TableHead>
-                  <Button variant="ghost" onClick={() => handleSort('status')} className="gap-2 font-semibold">
-                    Status <ArrowUpDown className="h-4 w-4" />
-                  </Button>
-                </TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredAndSortedIssues.map((issue) => (
-                <TableRow key={issue.id}>
-                  <TableCell className="font-medium">{issue.title}</TableCell>
-                  <TableCell className="capitalize">{issue.category}</TableCell>
-                  <TableCell>{issue.location}</TableCell>
-                  <TableCell>{issue.reportedBy}</TableCell>
-                  <TableCell>{new Date(issue.reportedDate).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={issue.status}
-                      onValueChange={(value) => handleStatusChange(issue.id, value as IssueStatus)}
-                    >
-                      <SelectTrigger className="w-32">
-                        <Badge className={getStatusColor(issue.status)}>
-                          {issue.status.replace("-", " ")}
-                        </Badge>
-                      </SelectTrigger>
-                      <SelectContent>
+    return (
+        <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <div>
+                    <h1 className="text-3xl font-bold mb-2">Manage Issues</h1>
+                    <p className="text-muted-foreground">
+                        Review, update, or archive reported issues securely.
+                    </p>
+                </div>
+
+                <Select value={filter} onValueChange={(val) => setFilter(val)}>
+                    <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="all">All</SelectItem>
                         <SelectItem value="pending">Pending</SelectItem>
                         <SelectItem value="in-progress">In Progress</SelectItem>
                         <SelectItem value="resolved">Resolved</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="View details"
-                      onClick={() => setSelectedIssue(issue)}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-
-          {filteredAndSortedIssues.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground">
-              No issues found matching your criteria
+                    </SelectContent>
+                </Select>
             </div>
-          )}
-        </CardContent>
-      </Card>
 
-      <IssueDetailDialog
-        issue={selectedIssue}
-        open={!!selectedIssue}
-        onOpenChange={(open) => !open && setSelectedIssue(null)}
-        onUpdate={handleUpdate}
-        onDelete={handleDelete}
-        onAddNote={handleAddNote}
-      />
-    </div>
-  );
+            <Card>
+                <CardHeader>
+                    <CardTitle>All Reported Issues</CardTitle>
+                </CardHeader>
+                <CardContent>
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Title</TableHead>
+                                    <TableHead>Department</TableHead>
+                                    <TableHead>Reporter</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Actions</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {filteredIssues.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell
+                                            colSpan={6}
+                                            className="text-center py-6 text-muted-foreground"
+                                        >
+                                            No issues found.
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    filteredIssues.map((issue) => (
+                                        <TableRow key={issue.id}>
+                                            <TableCell>{issue.title}</TableCell>
+                                            <TableCell>{issue.department || "N/A"}</TableCell>
+                                            <TableCell>{issue.reportedBy}</TableCell>
+                                            <TableCell>
+                                                <Badge
+                                                    variant="outline"
+                                                    className={
+                                                        issue.status === "resolved"
+                                                            ? "bg-green-100 text-green-700 border-green-300"
+                                                            : issue.status === "in-progress"
+                                                                ? "bg-blue-100 text-blue-700 border-blue-300"
+                                                                : "bg-yellow-100 text-yellow-700 border-yellow-300"
+                                                    }
+                                                >
+                                                    {issue.status || "pending"}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell>
+                                                {issue.createdAt?.seconds
+                                                    ? new Date(issue.createdAt.seconds * 1000).toLocaleDateString()
+                                                    : "N/A"}
+                                            </TableCell>
+                                            <TableCell className="flex space-x-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={issue.status === "resolved"}
+                                                    onClick={() => {
+                                                        setDeleteMode(false);
+                                                        setSelectedIssue(issue);
+                                                        setStatusNote("");
+                                                    }}
+                                                >
+                                                    Manage
+                                                </Button>
+                                                <Button
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    disabled={issue.status === "resolved"}
+                                                    onClick={() => {
+                                                        setDeleteMode(true);
+                                                        setSelectedIssue(issue);
+                                                    }}
+                                                >
+                                                    <Trash2 className="w-4 h-4 mr-1" /> Archive
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Dialog for managing or archiving */}
+            <Dialog open={!!selectedIssue} onOpenChange={() => setSelectedIssue(null)}>
+                <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                        <DialogTitle>
+                            {deleteMode ? "Confirm Issue Archiving" : "Manage Issue"}
+                        </DialogTitle>
+                    </DialogHeader>
+
+                    {selectedIssue && (
+                        <div className="space-y-4">
+                            <div>
+                                <h2 className="font-semibold text-lg">{selectedIssue.title}</h2>
+                                <p className="text-sm text-muted-foreground">
+                                    {selectedIssue.description}
+                                </p>
+
+                                {selectedIssue.status === "resolved" && (
+                                    <p className="text-sm text-green-600 font-medium mt-2">
+                                        ✅ This issue has been resolved and cannot be modified.
+                                    </p>
+                                )}
+                            </div>
+
+                            {!deleteMode && (
+                                <>
+                                    <div>
+                                        <p className="text-sm font-medium mb-1">Department</p>
+                                        <Select
+                                            value={selectedIssue.department || ""}
+                                            onValueChange={(val) =>
+                                                setSelectedIssue({ ...selectedIssue, department: val })
+                                            }
+                                            disabled={selectedIssue.status === "resolved"}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select department" />
+                                            </SelectTrigger>
+                                            <SelectContent className="max-h-64">
+                                                {departmentOptions.map((name) => (
+                                                    <SelectItem key={name} value={name}>
+                                                        {name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div>
+                                        <p className="text-sm font-medium mb-1">Status</p>
+                                        <Select
+                                            value={selectedIssue.status || "pending"}
+                                            onValueChange={(val) =>
+                                                setSelectedIssue({ ...selectedIssue, status: val })
+                                            }
+                                            disabled={selectedIssue.status === "resolved"}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select status" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="pending">Pending</SelectItem>
+                                                <SelectItem value="in-progress">In Progress</SelectItem>
+                                                <SelectItem value="resolved">Resolved</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                </>
+                            )}
+
+                            {!deleteMode && selectedIssue.statusHistory && selectedIssue.statusHistory.length > 0 && (
+                                <div>
+                                    <p className="text-sm font-medium mb-1">History (public)</p>
+                                    <div className="text-xs space-y-1 max-h-28 overflow-y-auto border rounded-md p-2 bg-slate-50">
+                                        {selectedIssue.statusHistory.map((h, i) => (
+                                            <p key={i}>
+                                                <b>{h.status}</b> — {h.note} <span className="text-muted-foreground">({h.actorName})</span>
+                                            </p>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {!deleteMode && (
+                                <div>
+                                    <p className="text-sm font-medium mb-1">
+                                        Note for this update <span className="text-red-500">*</span>
+                                    </p>
+                                    <Textarea
+                                        placeholder="e.g. Crew dispatched, expect repair within 3 days — this is shown publicly to the reporter and anyone viewing the issue."
+                                        value={statusNote}
+                                        onChange={(e) => setStatusNote(e.target.value)}
+                                        disabled={selectedIssue.status === "resolved"}
+                                    />
+                                </div>
+                            )}
+
+                            <div className="mt-4 space-y-2">
+                                <p className="text-sm text-muted-foreground">
+                                    Confirm your password to {deleteMode ? "archive" : "save"} changes.
+                                </p>
+                                <Input
+                                    type="password"
+                                    placeholder="Enter admin password"
+                                    value={adminPassword}
+                                    onChange={(e) => setAdminPassword(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="flex justify-end space-x-2 mt-4">
+                                <Button variant="outline" onClick={() => setSelectedIssue(null)}>
+                                    Cancel
+                                </Button>
+                                <Button
+                                    variant={deleteMode ? "destructive" : "default"}
+                                    disabled={processing}
+                                    onClick={handleConfirm}
+                                >
+                                    {processing
+                                        ? "Processing..."
+                                        : deleteMode
+                                            ? "Confirm Archive"
+                                            : "Confirm & Save"}
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
 };
 
 export default AdminIssues;

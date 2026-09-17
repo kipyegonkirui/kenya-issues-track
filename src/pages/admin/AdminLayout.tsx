@@ -1,101 +1,183 @@
-import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
-import { Button } from "@/components/ui/button";
-import { 
-  LayoutDashboard, 
-  AlertCircle, 
-  LogOut, 
-  ShieldCheck,
-  Menu
-} from "lucide-react";
+import { signOut } from "firebase/auth";
+import { auth } from "@/firebase";
+import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { NavLink, Outlet } from "react-router-dom";
+import {
+    Layout,
+    Menu,
+    Users,
+    Settings,
+    BarChart2,
+    Archive,
+    Search,
+    ChevronDown,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+
+const navItems = [
+    { label: "Dashboard", to: "/admin/dashboard", icon: Layout },
+    { label: "Issues", to: "/admin/issues", icon: Menu },
+    { label: "Users", to: "/admin/users", icon: Users },
+    { label: "Analytics", to: "/admin/analytics", icon: BarChart2 },
+    { label: "Archive", to: "/admin/archive", icon: Archive }, // ✅ Added here
+    { label: "Settings", to: "/admin/settings", icon: Settings },
+];
 
 const AdminLayout = () => {
-  const { user, signOut } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [collapsed, setCollapsed] = useState(false);
+    const [profileOpen, setProfileOpen] = useState(false);
+    const navigate = useNavigate();
 
-  const handleLogout = () => {
-    signOut();
-    navigate("/");
-  };
+    return (
+        <div className="min-h-screen flex bg-gray-50">
+            {/* SIDEBAR */}
+            <aside
+                className={`bg-slate-900 text-white transition-all duration-200 ${collapsed ? "w-20" : "w-64"
+                    }`}
+            >
+                <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800">
+                    <div className="flex items-center gap-3">
+                        <div className="bg-white/10 rounded-full p-2">
+                            <span className="font-bold text-lg">RI</span>
+                        </div>
+                        {!collapsed && <span className="text-lg font-semibold">Admin</span>}
+                    </div>
 
-  const navItems = [
-    { path: "/admin/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/admin/issues", icon: AlertCircle, label: "Issues" },
-  ];
+                    <button
+                        onClick={() => setCollapsed((v) => !v)}
+                        className="p-1 rounded hover:bg-white/5"
+                        aria-label="Toggle sidebar"
+                    >
+                        <svg
+                            viewBox="0 0 24 24"
+                            className="w-5 h-5"
+                            fill="none"
+                            stroke="currentColor"
+                        >
+                            <path
+                                d="M6 9l6 6 6-6"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            />
+                        </svg>
+                    </button>
+                </div>
 
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-16 items-center gap-4 px-4">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden"
-          >
-            <Menu className="h-5 w-5" />
-          </Button>
-          
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-6 w-6 text-primary" />
-            <span className="font-bold text-xl">Admin Panel</span>
-          </div>
+                <nav className="mt-4">
+                    <ul className="space-y-1 px-2">
+                        {navItems.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                                <li key={item.to}>
+                                    <NavLink
+                                        to={item.to}
+                                        className={({ isActive }) =>
+                                            `flex items-center gap-3 w-full px-3 py-2 rounded-md transition-colors text-sm ${isActive
+                                                ? "bg-white/10 text-white"
+                                                : "text-slate-300 hover:bg-white/5"
+                                            }`
+                                        }
+                                    >
+                                        <Icon className="w-5 h-5" />
+                                        {!collapsed && <span>{item.label}</span>}
+                                    </NavLink>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                </nav>
 
-          <div className="ml-auto flex items-center gap-4">
-            <div className="text-sm">
-              <span className="text-muted-foreground">Logged in as: </span>
-              <span className="font-medium">{user?.email}</span>
+                <div className="mt-auto px-4 py-4 border-t border-slate-800">
+                    <div className="flex items-center gap-3">
+                        <div className="rounded-full bg-white/10 w-9 h-9 flex items-center justify-center">
+                            A
+                        </div>
+                        {!collapsed && (
+                            <div className="flex-1">
+                                <div className="text-sm font-medium">Admin Name</div>
+                                <div className="text-xs text-slate-400">Lead Admin</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </aside>
+
+            {/* MAIN CONTENT */}
+            <div className="flex-1 flex flex-col">
+                {/* TOP NAVBAR */}
+                <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <h2 className="text-xl font-semibold">Admin Panel</h2>
+
+                        {/* Search */}
+                        <div className="hidden md:flex items-center bg-slate-100 rounded px-3 py-1 gap-2">
+                            <Search className="w-4 h-4 text-slate-400" />
+                            <input
+                                className="bg-transparent outline-none text-sm placeholder:text-slate-400"
+                                placeholder="Search issues, users..."
+                            />
+                        </div>
+                    </div>
+
+                    {/* PROFILE DROPDOWN */}
+                    <div className="relative">
+                        <button
+                            onClick={() => setProfileOpen((p) => !p)}
+                            className="flex items-center gap-2 p-2 rounded hover:bg-slate-100"
+                        >
+                            <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-slate-700">
+                                K
+                            </div>
+                            <div className="hidden md:block text-sm text-left">
+                                <div className="font-medium">Kirui</div>
+                                <div className="text-xs text-slate-500">Admin</div>
+                            </div>
+                            <ChevronDown className="w-4 h-4 text-slate-500" />
+                        </button>
+
+                        {profileOpen && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white border border-slate-200 rounded-md shadow-lg z-20">
+                                <button
+                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                                    onClick={() => setProfileOpen(false)}
+                                >
+                                    Manage Account
+                                </button>
+                                <button
+                                    className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                                    onClick={() => setProfileOpen(false)}
+                                >
+                                    Change Password
+                                </button>
+                                <hr className="my-1" />
+                                <button
+                                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                    onClick={async () => {
+                                        try {
+                                            await signOut(auth);
+                                            setProfileOpen(false);
+                                            navigate("/");
+                                        } catch (error) {
+                                            console.error("Error signing out:", error);
+                                        }
+                                    }}
+                                >
+                                    Sign Out
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </header>
+
+                {/* MAIN PAGE CONTENT */}
+                <main className="p-6 overflow-auto">
+                    <Outlet /> {/* 👈 Nested admin routes render here */}
+                </main>
             </div>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
-              <LogOut className="h-4 w-4 mr-2" />
-              Logout
-            </Button>
-          </div>
         </div>
-      </header>
-
-      <div className="flex">
-        {/* Sidebar */}
-        <aside
-          className={cn(
-            "fixed inset-y-16 left-0 z-30 w-64 border-r bg-card transition-transform lg:sticky lg:translate-x-0",
-            sidebarOpen ? "translate-x-0" : "-translate-x-full"
-          )}
-        >
-          <nav className="space-y-1 p-4">
-            {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              return (
-                <Link
-                  key={item.path}
-                  to={item.path}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "hover:bg-accent hover:text-accent-foreground"
-                  )}
-                >
-                  <item.icon className="h-5 w-5" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 p-6">
-          <Outlet />
-        </main>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default AdminLayout;

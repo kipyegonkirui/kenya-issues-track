@@ -1,0 +1,150 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function myRole() {
+      return isSignedIn() ? myProfile().role : null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && myRole() == 'admin';
+    }
+
+    // county_admin over their own county (department-scoped if they have one;
+    // a county_admin with no department set oversees the whole county).
+    function isCountyAdminFor(county, department) {
+      return isSignedIn()
+        && myRole() == 'county_admin'
+        && myProfile().county == county
+        && (myProfile().department == null || myProfile().department == department);
+    }
+
+    // ward_officer over their own exact ward + department.
+    function isWardOfficerFor(ward, department) {
+      return isSignedIn()
+        && myRole() == 'ward_officer'
+        && myProfile().ward == ward
+        && myProfile().department == department;
+    }
+
+    // Any of the three staff tiers responsible for this county/ward/department,
+    // in ascending order of authority. Used for read access and status updates.
+    function isResponsibleFor(county, ward, department) {
+      return isAdmin()
+        || isCountyAdminFor(county, department)
+        || isWardOfficerFor(ward, department);
+    }
+
+    // --- users/{uid} ---
+    match /users/{userId} {
+      allow read: if isSignedIn();
+
+      // New signups always land as a plain citizen with no scope fields —
+      // promotion to any staff role happens only via an update by an admin.
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.email is string
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'citizen');
+
+      // A user may update their own doc but never touch role/county/ward/department
+      // themselves (that would be self-promotion or self-reassignment).
+      allow update: if isAdmin()
+                    || (isSignedIn()
+                        && request.auth.uid == userId
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.county == resource.data.county
+                        && request.resource.data.ward == resource.data.ward
+                        && request.resource.data.department == resource.data.department);
+
+      allow delete: if isAdmin();
+    }
+
+    // --- departments/{id} ---
+    match /departments/{deptId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- issues/{issueId} ---
+    match /issues/{issueId} {
+      allow read: if true;
+
+      // A citizen creates their own report; an admin can also create one on a
+      // citizen's behalf (e.g. restoring an archived issue).
+      allow create: if isAdmin()
+                    || (isSignedIn()
+                        && request.resource.data.userId == request.auth.uid
+                        && request.resource.data.title is string
+                        && request.resource.data.title.size() > 0
+                        && request.resource.data.description is string
+                        && request.resource.data.county is string
+                        && request.resource.data.ward is string);
+
+      // Two distinct update paths:
+      //  1) The original reporter may edit their own report's content, but
+      //     cannot touch status, escalationLevel, or statusHistory — those are
+      //     the accountability trail and only staff can write to them.
+      //  2) Whoever is responsible for this issue's county/ward/department
+      //     (ward officer -> county admin -> admin) can update status,
+      //     escalationLevel, department (reassignment), assignedTo, and append
+      //     to statusHistory, but cannot reassign the report to a different
+      //     reporter.
+      allow update: if (isSignedIn()
+                        && resource.data.userId == request.auth.uid
+                        && request.resource.data.userId == resource.data.userId
+                        && request.resource.data.status == resource.data.status
+                        && request.resource.data.escalationLevel == resource.data.escalationLevel)
+                    || (isResponsibleFor(resource.data.countyId, resource.data.wardId, resource.data.department)
+                        && request.resource.data.userId == resource.data.userId);
+
+      allow delete: if isAdmin();
+    }
+
+    // --- archived_issues/{id} ---
+    match /archived_issues/{issueId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- notifications/{id} ---
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.token.email;
+      allow update: if isAdmin()
+                    || (isSignedIn() && resource.data.userId == request.auth.token.email
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+      allow create: if isAdmin() || myRole() == 'county_admin' || myRole() == 'ward_officer';
+      allow delete: if isAdmin();
+    }
+
+    // --- communityChats/{id} ---
+    match /communityChats/{msgId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0;
+      allow update: if false;
+      allow delete: if isAdmin()
+                    || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // --- onlineUsers/{uid}, typingStatus/{uid} ---
+    match /onlineUsers/{uid} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /typingStatus/{uid} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+  }
+}

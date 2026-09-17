@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Navigation from "@/components/Navigation";
-import IssueCard, { Issue, IssueCategory, IssueStatus } from "@/components/IssueCard";
+import IssueCard, { Issue } from "@/components/IssueCard";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Search, Loader2 } from "lucide-react";
+import { db } from "@/firebase";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { toast } from "sonner";
 
-// Mock data - will be replaced with real data later
+// --- Mock data (still kept as fallback) ---
 const mockIssues: Issue[] = [
   {
     id: "1",
@@ -38,57 +41,68 @@ const mockIssues: Issue[] = [
     reportedBy: "Ahmed Hassan",
     reportedDate: "2025-01-09",
   },
-  {
-    id: "4",
-    title: "Uncollected garbage in Eastleigh",
-    description: "Garbage has been piling up for over a week. Health hazard developing.",
-    category: "waste",
-    status: "resolved",
-    location: "Eastleigh, Nairobi",
-    reportedBy: "Sarah Njeri",
-    reportedDate: "2025-01-05",
-  },
-  {
-    id: "5",
-    title: "Hospital lacks essential medicines",
-    description: "Kenyatta Hospital pharmacy is out of stock for several critical medications.",
-    category: "health",
-    status: "in-progress",
-    location: "Kenyatta National Hospital, Nairobi",
-    reportedBy: "Dr. Peter Omondi",
-    reportedDate: "2025-01-07",
-  },
-  {
-    id: "6",
-    title: "School building in poor condition",
-    description: "Cracked walls and leaking roof pose danger to students. Needs urgent attention.",
-    category: "education",
-    status: "pending",
-    location: "Kibera Primary School, Nairobi",
-    reportedBy: "Jane Akinyi",
-    reportedDate: "2025-01-11",
-  },
 ];
 
 const Issues = () => {
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
-  const filteredIssues = mockIssues.filter((issue) => {
-    const matchesSearch = issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         issue.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         issue.location.toLowerCase().includes(searchQuery.toLowerCase());
+  // --- Fetch from Firestore ---
+  useEffect(() => {
+    const fetchIssues = async () => {
+      try {
+        const q = query(collection(db, "issues"), orderBy("createdAt", "desc"));
+        const snapshot = await getDocs(q);
+        const firestoreIssues = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            title: data.title || "Untitled Issue",
+            description: data.description || "No description provided",
+            category: data.category || "other",
+            status: data.status || "pending",
+            location: data.location || "",
+            reportedBy: data.reportedBy || "Anonymous",
+            reportedDate: data.createdAt?.toDate
+              ? data.createdAt.toDate().toISOString()
+              : new Date().toISOString(),
+            imageUrl: data.imageUrl || "",
+          } as Issue;
+        });
+
+        // Combine firestore + mock (Firestore first)
+        setIssues([...firestoreIssues, ...mockIssues]);
+      } catch (err) {
+        console.error("Error loading issues:", err);
+        toast.error("Failed to load issues from database.");
+        setIssues(mockIssues); // fallback
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchIssues();
+  }, []);
+
+  // --- Filtering & Searching ---
+  const filteredIssues = issues.filter((issue) => {
+    const matchesSearch =
+      issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      issue.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      issue.location.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || issue.status === statusFilter;
     const matchesCategory = categoryFilter === "all" || issue.category === categoryFilter;
-    
     return matchesSearch && matchesStatus && matchesCategory;
   });
 
+  // --- UI Rendering ---
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      
+
       <div className="container px-4 py-12">
         <div className="mb-8">
           <h1 className="text-4xl font-bold mb-2">All Issues</h1>
@@ -108,7 +122,7 @@ const Issues = () => {
               />
             </div>
           </div>
-          
+
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger>
               <SelectValue placeholder="Filter by status" />
@@ -139,28 +153,41 @@ const Issues = () => {
           </Select>
         </div>
 
-        {/* Results */}
-        <div className="mb-4 text-sm text-muted-foreground">
-          Showing {filteredIssues.length} of {mockIssues.length} issues
-        </div>
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredIssues.map((issue) => (
-            <IssueCard key={issue.id} issue={issue} />
-          ))}
-        </div>
-
-        {filteredIssues.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-muted-foreground">No issues found matching your filters.</p>
-            <Button variant="outline" className="mt-4" onClick={() => {
-              setSearchQuery("");
-              setStatusFilter("all");
-              setCategoryFilter("all");
-            }}>
-              Clear Filters
-            </Button>
+        {/* Loading State */}
+        {loading ? (
+          <div className="flex justify-center items-center py-20">
+            <Loader2 className="animate-spin mr-2 h-5 w-5 text-primary" />
+            <p>Loading issues...</p>
           </div>
+        ) : (
+          <>
+            <div className="mb-4 text-sm text-muted-foreground">
+              Showing {filteredIssues.length} of {issues.length} issues
+            </div>
+
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredIssues.map((issue) => (
+                <IssueCard key={issue.id} issue={issue} />
+              ))}
+            </div>
+
+            {filteredIssues.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">No issues found matching your filters.</p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setStatusFilter("all");
+                    setCategoryFilter("all");
+                  }}
+                >
+                  Clear Filters
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

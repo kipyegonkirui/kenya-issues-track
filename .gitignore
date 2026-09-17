@@ -23,3 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 .env
+
+# Firebase service account keys (used by server/firebaseAdmin.js) — never commit these
+*firebase-adminsdk*.json
+*serviceAccountKey*.json

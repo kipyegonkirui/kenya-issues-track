@@ -1,117 +1,78 @@
+
 import { useState } from "react";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth, db } from "@/firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { normalizeRole } from "@/lib/roles";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { AlertCircle, ShieldCheck } from "lucide-react";
-import { toast } from "@/hooks/use-toast";
 
 const AdminLogin = () => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const { signIn, user } = useAuth();
-  const navigate = useNavigate();
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [error, setError] = useState("");
+    const navigate = useNavigate();
 
-  // Redirect if already logged in as admin
-  if (user?.role === 'admin') {
-    navigate("/admin/dashboard");
-  }
+    const handleLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
+        try {
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
 
-    try {
-      await signIn(email, password);
-      
-      // Check if user is admin after sign in
-      const authUser = JSON.parse(localStorage.getItem("authUser") || "{}");
-      if (authUser.role !== 'admin') {
-        toast({
-          variant: "destructive",
-          title: "Access Denied",
-          description: "You don't have admin privileges",
-        });
-        return;
-      }
+            // Check Firestore role
+            const docRef = doc(db, "users", user.uid);
+            const docSnap = await getDoc(docRef);
+            const role = normalizeRole(docSnap.exists() ? docSnap.data().role : null);
 
-      toast({
-        title: "Welcome Admin",
-        description: "Successfully logged in to admin dashboard",
-      });
-      navigate("/admin/dashboard");
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Login Failed",
-        description: error.message || "Invalid credentials",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+            if (role === "admin") {
+                navigate("/admin/dashboard");
+            } else if (role === "county_admin") {
+                navigate("/county-admin");
+            } else if (role === "ward_officer") {
+                navigate("/ward");
+            } else {
+                setError("This account doesn't have staff access. Use the regular sign-in instead.");
+            }
+        } catch (err: any) {
+            setError("Invalid credentials or network error.");
+        }
+    };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-accent/5 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-4 text-center">
-          <div className="flex justify-center">
-            <ShieldCheck className="h-12 w-12 text-primary" />
-          </div>
-          <div>
-            <CardTitle className="text-3xl">Admin Login</CardTitle>
-            <CardDescription>
-              Access the admin dashboard
-            </CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="admin@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Logging in..." : "Login as Admin"}
-            </Button>
-          </form>
-          
-          <div className="mt-6 p-4 bg-info/10 rounded-lg border border-info/20">
-            <div className="flex gap-2">
-              <AlertCircle className="h-5 w-5 text-info flex-shrink-0 mt-0.5" />
-              <div className="text-sm">
-                <p className="font-medium text-info mb-1">Demo Admin Credentials:</p>
-                <p className="text-muted-foreground">
-                  To create an admin account, sign up normally and manually set role to 'admin' in localStorage
-                </p>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-background">
+            <form
+                onSubmit={handleLogin}
+                className="bg-card p-8 rounded-2xl shadow-md w-full max-w-md"
+            >
+                <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
+
+                <div className="space-y-4">
+                    <Input
+                        type="email"
+                        placeholder="Admin Email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                    />
+                    <Input
+                        type="password"
+                        placeholder="Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                    />
+                    {error && <p className="text-red-500 text-sm">{error}</p>}
+
+                    <Button type="submit" className="w-full">
+                        Login
+                    </Button>
+                </div>
+            </form>
+        </div>
+    );
 };
 
 export default AdminLogin;

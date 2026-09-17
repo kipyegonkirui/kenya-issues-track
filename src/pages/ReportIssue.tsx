@@ -1,132 +1,262 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navigation from "@/components/Navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import AuthModal from "@/components/AuthModal";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
-import { AlertCircle, Upload } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
-import { AuthModal } from "@/components/AuthModal";
-
-// County to constituencies to wards mapping
-const countyData: Record<string, Record<string, string[]>> = {
-  "Nairobi": {
-    "Westlands": ["Kitisuru", "Parklands/Highridge", "Karura", "Kangemi", "Mountain View"],
-    "Dagoretti North": ["Kilimani", "Kawangware", "Gatina", "Kileleshwa", "Kabiro"],
-    "Dagoretti South": ["Mutuini", "Ngando", "Riruta", "Uthiru/Ruthimitu", "Waithaka"],
-    "Langata": ["Karen", "Nairobi West", "Mugumo-ini", "South C", "Nyayo Highrise"],
-    "Kibra": ["Laini Saba", "Lindi", "Makina", "Woodley/Kenyatta Golf Course", "Sarang'ombe"],
-  },
-  "Mombasa": {
-    "Changamwe": ["Port Reitz", "Kipevu", "Airport", "Changamwe", "Chaani"],
-    "Jomvu": ["Jomvu Kuu", "Miritini", "Mikindani"],
-    "Kisauni": ["Mjambere", "Junda", "Bamburi", "Mwakirunge", "Mtopanga", "Magogoni", "Shanzu"],
-    "Nyali": ["Frere Town", "Ziwa La Ng'ombe", "Mkomani", "Kongowea", "Kadzandani"],
-  },
-  "Kisumu": {
-    "Kisumu East": ["Kajulu", "Kolwa East", "Manyatta B", "Nyalenda A"],
-    "Kisumu West": ["Central Kisumu", "Kisumu North", "West Kisumu", "North West Kisumu", "South West Kisumu"],
-    "Kisumu Central": ["Railways", "Migosi", "Shaurimoyo Kaloleni", "Market Milimani", "Kondele"],
-  },
-  "Nakuru": {
-    "Nakuru Town East": ["Biashara", "Kivumbini", "Flamingo", "Menengai West", "Nakuru East"],
-    "Nakuru Town West": ["Barut", "London", "Kaptembwo", "Kapkures", "Rhoda"],
-    "Naivasha": ["Naivasha East", "Viwandani", "Hells Gate", "Olkaria", "Naivasha West"],
-  },
-  "Uasin Gishu": {
-    "Ainabkoi": ["Ainabkoi/Olare", "Kapsoya", "Kaptagat", "Simat/Kapseret"],
-    "Kapseret": ["Simat/Kapseret", "Kipkenyo", "Ngeria", "Megun"],
-    "Kesses": ["Racecourse", "Cheptiret/Kipchamo", "Tulwet/Chuiyat", "Tarakwa"],
-  },
-  "Kiambu": {
-    "Juja": ["Murera", "Theta", "Juja", "Witeithie", "Kalimoni"],
-    "Thika Town": ["Township", "Kamenu", "Hospital", "Gatuanyaga", "Ngoliba"],
-    "Ruiru": ["Biashara", "Gatongora", "Kahawa Sukari", "Kahawa Wendani", "Kiuu", "Mwiki", "Mwihoko"],
-  },
-};
-
-const COUNTIES = Object.keys(countyData).sort();
+import { AlertCircle, Sparkles } from "lucide-react";
+import { auth } from "@/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { addIssue } from "@/lib/issues";
+import { aiCategorize, aiEnhanceDescription } from "@/lib/aiApi";
+import { counties, County, Constituency } from "@/lib/counties";
+import { getCategoryConfig } from "@/lib/departments";
+import { db } from "@/firebase";
+import { collection, getDocs } from "firebase/firestore";
 
 const ReportIssue = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const [user, setUser] = useState<any>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [pendingSubmit, setPendingSubmit] = useState(false);
+  const [loadingAI, setLoadingAI] = useState(false);
+
+  const [selectedCounty, setSelectedCounty] = useState<County | null>(null);
+  const [selectedConstituency, setSelectedConstituency] = useState<Constituency | null>(null);
+  const [liveDepartments, setLiveDepartments] = useState<string[]>([]);
+
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     category: "",
     county: "",
+    countyId: "",
     constituency: "",
+    constituencyId: "",
     ward: "",
+    wardId: "",
     location: "",
     reportedBy: "",
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Check if user is authenticated
-    if (!user) {
-      setAuthModalOpen(true);
-      toast.error("Please sign in to report an issue");
-      return;
-    }
-    
-    // Basic validation
-    if (!formData.title || !formData.description || !formData.category || !formData.county || !formData.constituency || !formData.ward || !formData.reportedBy) {
-      toast.error("Please fill in all required fields");
-      return;
-    }
-
-    // Save issue locally (will be replaced with backend)
-    const issues = JSON.parse(localStorage.getItem("issues") || "[]");
-    const newIssue = {
-      id: Date.now().toString(),
-      ...formData,
-      userId: user.uid,
-      userEmail: user.email,
-      status: "pending",
-      createdAt: new Date().toISOString(),
+  // ✅ Fetch the live department list from Firestore (kept in sync with
+  // whatever an admin has actually seeded/renamed via Admin → Settings or
+  // Admin → Users), rather than trusting the static category→department
+  // config file to always match reality.
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        const snap = await getDocs(collection(db, "departments"));
+        setLiveDepartments(snap.docs.map((d) => d.data().name).filter(Boolean));
+      } catch (error) {
+        console.error("Error fetching departments:", error);
+      }
     };
-    issues.push(newIssue);
-    localStorage.setItem("issues", JSON.stringify(issues));
-    
-    toast.success("Issue reported successfully!");
-    
-    // Redirect to issues page
-    setTimeout(() => {
-      navigate("/issues");
-    }, 1500);
+    fetchDepartments();
+  }, []);
+
+  // Resolve which department the selected category routes to, verified
+  // against the live list. If the configured name doesn't exist anymore
+  // (e.g. an admin renamed/removed it), fall back to the catch-all
+  // department instead of silently routing to a department that no longer
+  // exists — and warn in the console so it gets noticed and fixed.
+  const routedDepartment = (() => {
+    if (!formData.category) return null;
+    const configured = getCategoryConfig(formData.category).department;
+    if (liveDepartments.length === 0) return configured; // haven't loaded yet — best guess
+    if (liveDepartments.includes(configured)) return configured;
+
+    const fallback = getCategoryConfig("other").department;
+    console.warn(
+      `[ReportIssue] Configured department "${configured}" for category "${formData.category}" ` +
+      `was not found in the live departments list. Falling back to "${fallback}". ` +
+      `An admin likely renamed or removed a department — update src/lib/departments.ts to match.`
+    );
+    return liveDepartments.includes(fallback) ? fallback : null;
+  })();
+
+  // ✅ Watch Auth State
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        setFormData((prev) => ({
+          ...prev,
+          reportedBy: currentUser.displayName || currentUser.email || "",
+        }));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // ✅ Input handler
+  const handleChange = (field: string, value: string) =>
+    setFormData((prev) => ({ ...prev, [field]: value }));
+
+  // ✅ County change
+  const handleCountyChange = (countyId: string) => {
+    const county = counties.find((c) => c.id === countyId) || null;
+    setSelectedCounty(county);
+    setSelectedConstituency(null);
+    setFormData((prev) => ({
+      ...prev,
+      county: county?.name || "",
+      countyId: county?.id || "",
+      constituency: "",
+      constituencyId: "",
+      ward: "",
+      wardId: "",
+    }));
   };
 
-  const handleChange = (field: string, value: string) => {
-    setFormData(prev => {
-      // Reset constituency and ward when county changes
-      if (field === "county") {
-        return { ...prev, [field]: value, constituency: "", ward: "" };
-      }
-      // Reset ward when constituency changes
-      if (field === "constituency") {
-        return { ...prev, [field]: value, ward: "" };
-      }
-      return { ...prev, [field]: value };
-    });
+  // ✅ Constituency change
+  const handleConstituencyChange = (constituencyId: string) => {
+    const constituency =
+      selectedCounty?.constituencies.find((c) => c.id === constituencyId) || null;
+    setSelectedConstituency(constituency);
+    setFormData((prev) => ({
+      ...prev,
+      constituency: constituency?.name || "",
+      constituencyId: constituency?.id || "",
+      ward: "",
+      wardId: "",
+    }));
+  };
+
+  // ✅ Ward change
+  const handleWardChange = (wardId: string) => {
+    const ward =
+      selectedConstituency?.wards.find((w) => w.id === wardId)?.name || "";
+    setFormData((prev) => ({ ...prev, ward, wardId }));
+  };
+
+  // ✅ AI Categorization
+  const handleAICategorize = async () => {
+    if (!formData.description) {
+      toast.error("Please write a short description first.");
+      return;
+    }
+
+    try {
+      setLoadingAI(true);
+      const data = await aiCategorize(formData.description);
+
+      handleChange("category", data.category || "");
+      toast.success(`AI suggests category: ${data.category}`);
+    } catch (err) {
+      console.error("AI categorize error:", err);
+      toast.error("Failed to auto-categorize issue.");
+    } finally {
+      setLoadingAI(false);
+    }
+  };
+
+  // ✅ AI Enhance Description
+  const handleEnhanceDescription = async () => {
+    if (!formData.description) {
+      toast.error("Please add a description to enhance.");
+      return;
+    }
+
+    try {
+      setLoadingAI(true);
+      const data = await aiEnhanceDescription(formData.description);
+
+      handleChange("description", data.enhanced || "");
+      toast.success("Description improved by AI ✨");
+    } catch (err) {
+      console.error("AI enhance error:", err);
+      toast.error("Failed to enhance description.");
+    } finally {
+      setLoadingAI(false);
+    }
+  };
+
+  // ✅ Submit handler
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!user) {
+      toast.error("You must log in to submit an issue.");
+      setPendingSubmit(true);
+      setAuthModalOpen(true);
+      return;
+    }
+
+    if (
+      !formData.title ||
+      !formData.description ||
+      !formData.category ||
+      !formData.county ||
+      !formData.constituency ||
+      !formData.ward
+    ) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
+
+    try {
+      await addIssue({
+        ...formData,
+        reportedBy: formData.reportedBy || user.email,
+        reporterEmail: user.email,
+        userId: user.uid,
+        department: routedDepartment,
+      });
+
+      toast.success("✅ Issue reported successfully!");
+      setTimeout(() => navigate("/issues"), 1500);
+    } catch (error) {
+      console.error("Firestore error:", error);
+      toast.error("Failed to report issue. Please try again.");
+    }
+  };
+
+  // ✅ Handle Auth Success
+  const handleAuthSuccess = (loggedInUser: any) => {
+    setUser(loggedInUser);
+    setFormData((prev) => ({
+      ...prev,
+      reportedBy: loggedInUser.email || "",
+    }));
+    setAuthModalOpen(false);
+
+    if (pendingSubmit) {
+      setPendingSubmit(false);
+      toast.success("Logged in successfully. Submitting your issue...");
+      setTimeout(() => handleSubmit(new Event("submit") as any), 800);
+    }
   };
 
   return (
     <div className="min-h-screen bg-background">
       <Navigation />
-      
+
       <div className="container px-4 py-12">
         <div className="max-w-3xl mx-auto">
           <div className="mb-8">
             <h1 className="text-4xl font-bold mb-2">Report an Issue</h1>
             <p className="text-muted-foreground">
-              Help improve your community by reporting issues. Your report will be reviewed and assigned to the appropriate authorities.
+              Help improve your community by reporting issues. You can view
+              existing reports without logging in, but you must sign in to
+              submit a new one.
             </p>
           </div>
 
@@ -137,11 +267,13 @@ const ReportIssue = () => {
                 Issue Details
               </CardTitle>
               <CardDescription>
-                Please provide as much detail as possible to help us address the issue quickly.
+                Provide as much detail as possible to help address the issue quickly.
               </CardDescription>
             </CardHeader>
+
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Title */}
                 <div className="space-y-2">
                   <Label htmlFor="title">Issue Title *</Label>
                   <Input
@@ -153,141 +285,170 @@ const ReportIssue = () => {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category *</Label>
-                  <Select value={formData.category} onValueChange={(value) => handleChange("category", value)}>
-                    <SelectTrigger id="category">
-                      <SelectValue placeholder="Select a category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="roads">Roads & Infrastructure</SelectItem>
-                      <SelectItem value="water">Water Supply</SelectItem>
-                      <SelectItem value="electricity">Electricity</SelectItem>
-                      <SelectItem value="waste">Waste Management</SelectItem>
-                      <SelectItem value="health">Health Services</SelectItem>
-                      <SelectItem value="education">Education</SelectItem>
-                      <SelectItem value="security">Security</SelectItem>
-                      <SelectItem value="other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="county">County *</Label>
-                  <Select value={formData.county} onValueChange={(value) => handleChange("county", value)}>
-                    <SelectTrigger id="county">
-                      <SelectValue placeholder="Select your county" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COUNTIES.map((county) => (
-                        <SelectItem key={county} value={county}>
-                          {county}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="constituency">Constituency *</Label>
-                  <Select 
-                    value={formData.constituency} 
-                    onValueChange={(value) => handleChange("constituency", value)}
-                    disabled={!formData.county}
-                  >
-                    <SelectTrigger id="constituency">
-                      <SelectValue placeholder={formData.county ? "Select your constituency" : "Select county first"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formData.county && Object.keys(countyData[formData.county] || {}).map((constituency) => (
-                        <SelectItem key={constituency} value={constituency}>
-                          {constituency}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="ward">Ward *</Label>
-                  <Select 
-                    value={formData.ward} 
-                    onValueChange={(value) => handleChange("ward", value)}
-                    disabled={!formData.constituency}
-                  >
-                    <SelectTrigger id="ward">
-                      <SelectValue placeholder={formData.constituency ? "Select your ward" : "Select constituency first"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {formData.county && formData.constituency && countyData[formData.county]?.[formData.constituency]?.map((ward) => (
-                        <SelectItem key={ward} value={ward}>
-                          {ward}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="location">Specific Location (Optional)</Label>
-                  <Input
-                    id="location"
-                    placeholder="e.g., Near Moi Avenue Junction, opposite City Hall"
-                    value={formData.location}
-                    onChange={(e) => handleChange("location", e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Add landmarks or street names for more precise location
-                  </p>
-                </div>
-
+                {/* Description with AI Buttons */}
                 <div className="space-y-2">
                   <Label htmlFor="description">Description *</Label>
                   <Textarea
                     id="description"
-                    placeholder="Provide detailed information about the issue, including how it affects the community"
                     rows={6}
+                    placeholder="Describe the issue in detail"
                     value={formData.description}
                     onChange={(e) => handleChange("description", e.target.value)}
                     required
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="photo">Photo (Optional)</Label>
-                  <div className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer">
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
-                      Click to upload or drag and drop
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      PNG, JPG up to 10MB
-                    </p>
+                  <div className="flex gap-2 mt-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleAICategorize}
+                      disabled={loadingAI}
+                    >
+                      <Sparkles className="w-4 h-4 mr-1" />
+                      AI Categorize
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleEnhanceDescription}
+                      disabled={loadingAI}
+                    >
+                      <Sparkles className="w-4 h-4 mr-1" />
+                      AI Enhance
+                    </Button>
                   </div>
                 </div>
 
+                {/* Category */}
                 <div className="space-y-2">
-                  <Label htmlFor="reportedBy">Your Name *</Label>
+                  <Label>Category *</Label>
+                  <Select
+                    value={formData.category}
+                    onValueChange={(value) => handleChange("category", value)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a category" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {[
+                        "roads",
+                        "water",
+                        "electricity",
+                        "waste",
+                        "health",
+                        "education",
+                        "security",
+                        "other",
+                      ].map((cat) => (
+                        <SelectItem key={cat} value={cat}>
+                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {formData.category && (
+                    <p className="text-sm text-muted-foreground">
+                      {routedDepartment
+                        ? <>This will be routed to the <b>{routedDepartment}</b>.</>
+                        : "Couldn't confirm which department handles this category — it'll still be reported, just flagged for manual routing."}
+                    </p>
+                  )}
+                </div>
+
+                {/* County */}
+                <div className="space-y-2">
+                  <Label>County *</Label>
+                  <Select
+                    value={selectedCounty?.id || ""}
+                    onValueChange={handleCountyChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select your county" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {counties.map((county) => (
+                        <SelectItem key={county.id} value={county.id}>
+                          {county.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Constituency */}
+                <div className="space-y-2">
+                  <Label>Constituency *</Label>
+                  <Select
+                    value={selectedConstituency?.id || ""}
+                    onValueChange={handleConstituencyChange}
+                    disabled={!selectedCounty}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select constituency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {selectedCounty?.constituencies.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Ward */}
+                <div className="space-y-2">
+                  <Label>Ward *</Label>
+                  <Select
+                    value={
+                      selectedConstituency?.wards.find(
+                        (w) => w.name === formData.ward
+                      )?.id || ""
+                    }
+                    onValueChange={handleWardChange}
+                    disabled={!selectedConstituency}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select ward" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {selectedConstituency?.wards.map((w) => (
+                        <SelectItem key={w.id} value={w.id}>
+                          {w.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Location */}
+                <div className="space-y-2">
+                  <Label>Specific Location (Optional)</Label>
                   <Input
-                    id="reportedBy"
-                    placeholder="Full name"
-                    value={formData.reportedBy}
-                    onChange={(e) => handleChange("reportedBy", e.target.value)}
-                    required
+                    placeholder="e.g., Near Moi Avenue Junction"
+                    value={formData.location}
+                    onChange={(e) => handleChange("location", e.target.value)}
                   />
                 </div>
 
-                <div className="bg-muted/50 p-4 rounded-lg">
-                  <p className="text-sm text-muted-foreground">
-                    * Required fields. By submitting this report, you confirm that the information provided is accurate to the best of your knowledge.
-                  </p>
+                {/* Reporter */}
+                <div className="space-y-2">
+                  <Label>Your Name</Label>
+                  <Input
+                    placeholder="Auto-filled when logged in"
+                    value={formData.reportedBy}
+                    readOnly
+                  />
                 </div>
 
                 <div className="flex gap-4">
-                  <Button type="submit" variant="hero" size="lg" className="flex-1">
+                  <Button type="submit" className="flex-1">
                     Submit Report
                   </Button>
-                  <Button type="button" variant="outline" size="lg" onClick={() => navigate("/issues")}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigate("/issues")}
+                  >
                     Cancel
                   </Button>
                 </div>
@@ -297,13 +458,17 @@ const ReportIssue = () => {
         </div>
       </div>
 
+      <AuthModal
+        open={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onSuccess={handleAuthSuccess}
+      />
+
       <footer className="border-t py-8 mt-12">
         <div className="container px-4 text-center text-muted-foreground">
           <p>&copy; 2025 Kenya Issues. Empowering citizens for better communities.</p>
         </div>
       </footer>
-      
-      <AuthModal open={authModalOpen} onOpenChange={setAuthModalOpen} />
     </div>
   );
 };

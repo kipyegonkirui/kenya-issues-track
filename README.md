@@ -1,73 +1,69 @@
-# Welcome to your Lovable project
+# Kenya Issues
 
-## Project info
+A county-level civic issue reporting app. Citizens report problems (roads,
+water, electricity, waste, health, education, security) by county,
+constituency, and ward; admins triage them from a dashboard.
 
-**URL**: https://lovable.dev/projects/03a46d42-1474-4d7e-a317-05570040a250
+Originally scaffolded with [Lovable](https://lovable.dev), then extended with
+Firebase and an AI categorization service.
 
-## How can I edit this code?
+## Project structure
 
-There are several ways of editing your application.
+This repo has two parts that run separately:
 
-**Use Lovable**
+- **/** — the Vite + React + TypeScript frontend (talks to Firebase directly
+  from the browser for auth and Firestore).
+- **/server** — a small Express service that calls OpenAI to auto-suggest a
+  category and clean up a description. The frontend calls it at `/api/*`.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/03a46d42-1474-4d7e-a317-05570040a250) and start prompting.
+## Setup
 
-Changes made via Lovable will be committed automatically to this repo.
+1. Install frontend dependencies: `npm install`
+2. Install server dependencies: `npm install --prefix server`
+3. Copy `.env.example` to `.env` and fill in your Firebase web app config
+   (Firebase console → Project settings → General → Your apps).
+4. Copy `server/.env.example` to `server/.env` and fill in an OpenAI API key.
 
-**Use your preferred IDE**
+## Running locally
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- `npm run dev` — frontend only, at http://localhost:8080
+- `npm run server` — AI service only, at http://localhost:5000
+- `npm run dev:all` — both together (requires step 2 above; uses `concurrently`)
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+In dev, Vite proxies `/api/*` to `localhost:5000` (see `vite.config.ts`), so
+the frontend's AI Categorize / AI Enhance buttons work as long as `npm run
+server` (or `dev:all`) is running.
 
-Follow these steps:
+## Making someone an admin
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+There's no self-service admin signup. In the Firebase console, open
+Firestore → `users` → the person's document, and set `role: "admin"`. The
+`/admin` section checks this field (`src/hooks/useUserRole.ts`,
+`src/components/AdminRoute.tsx`) — without it, a user can sign in but can't
+reach any `/admin/*` route.
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## Deploying
 
-# Step 3: Install the necessary dependencies.
-npm i
+The two parts deploy independently:
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+- **Frontend**: `npm run build` produces a static `dist/` folder — deploy it
+  to Vercel, Netlify, Firebase Hosting, or similar. Set the `VITE_*`
+  variables from `.env` in that platform's environment settings.
+- **Server**: needs a host that runs a persistent Node process (Render,
+  Railway, Fly.io, a VPS — not a static host). Set `OPENAI_API_KEY` there
+  as a platform secret, not a committed file.
+- If the two end up on different domains, set `VITE_API_URL` (see
+  `.env.example`) on the frontend to the server's full URL, so
+  `src/lib/aiApi.ts` calls the right place instead of relying on the
+  dev-only Vite proxy.
 
-**Edit a file directly in GitHub**
+Before deploying, double-check your Firestore security rules — this repo
+doesn't include `firestore.rules`, so they're managed separately in the
+Firebase console. In particular, make sure a regular user can't write their
+own `users/{uid}.role` field to `"admin"`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Tech stack
 
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/03a46d42-1474-4d7e-a317-05570040a250) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Vite, TypeScript, React, React Router, shadcn/ui, Tailwind CSS,
+TanStack Query, react-hook-form + zod, Firebase (Auth + Firestore), Express,
+OpenAI.

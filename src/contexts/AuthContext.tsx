@@ -1,88 +1,53 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { onAuthStateChanged, User as FirebaseUser } from "firebase/auth";
+import { auth, db } from "@/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
-interface User {
-  uid: string;
-  email: string;
-  role?: 'user' | 'admin';
-}
+type UserProfile = {
+    uid: string;
+    email?: string | null;
+    displayName?: string | null;
+    createdAt?: any;
+};
 
-interface AuthContextType {
-  user: User | null;
-  loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string) => Promise<void>;
-  signOut: () => void;
-}
+type AuthContextType = {
+    firebaseUser: FirebaseUser | null;
+    profile: UserProfile | null;
+    loading: boolean;
+};
 
-const AuthContext = createContext<AuthContextType>({
-  user: null,
-  loading: true,
-  signIn: async () => {},
-  signUp: async () => {},
-  signOut: () => {},
-});
+const AuthContext = createContext<AuthContextType>({ firebaseUser: null, profile: null, loading: true });
 
 export const useAuth = () => useContext(AuthContext);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
+    const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Check for stored user on mount
-    const storedUser = localStorage.getItem("authUser");
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
-  }, []);
+    useEffect(() => {
+        const unsub = onAuthStateChanged(auth, async (user) => {
+            setFirebaseUser(user);
+            if (user) {
+                // fetch profile doc
+                const docRef = doc(db, "users", user.uid);
+                const snap = await getDoc(docRef);
+                if (snap.exists()) {
+                    setProfile({ uid: user.uid, ...(snap.data() as any) });
+                } else {
+                    setProfile({
+                        uid: user.uid,
+                        email: user.email,
+                        displayName: user.displayName || null,
+                    });
+                }
+            } else {
+                setProfile(null);
+            }
+            setLoading(false);
+        });
+        return () => unsub();
+    }, []);
 
-  const signIn = async (email: string, password: string) => {
-    // Mock sign in - store users in localStorage
-    const users = JSON.parse(localStorage.getItem("users") || "[]");
-    const foundUser = users.find((u: any) => u.email === email && u.password === password);
-    
-    if (!foundUser) {
-      throw new Error("Invalid email or password");
-    }
-    
-    const authUser = { uid: foundUser.uid, email: foundUser.email, role: foundUser.role || 'user' };
-    localStorage.setItem("authUser", JSON.stringify(authUser));
-    setUser(authUser);
-  };
-
-  const signUp = async (email: string, password: string) => {
-    // Mock sign up - store users in localStorage
-    const users = JSON.parse(localStorage.getItem("users") || "[]");
-    const existingUser = users.find((u: any) => u.email === email);
-    
-    if (existingUser) {
-      throw new Error("Email already exists");
-    }
-    
-    const newUser = {
-      uid: Date.now().toString(),
-      email,
-      password,
-      role: 'user' as const, // Default role is user
-    };
-    
-    users.push(newUser);
-    localStorage.setItem("users", JSON.stringify(users));
-    
-    const authUser = { uid: newUser.uid, email: newUser.email, role: newUser.role };
-    localStorage.setItem("authUser", JSON.stringify(authUser));
-    setUser(authUser);
-  };
-
-  const signOut = () => {
-    localStorage.removeItem("authUser");
-    setUser(null);
-  };
-
-  return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
-      {children}
-    </AuthContext.Provider>
-  );
+    return <AuthContext.Provider value={ { firebaseUser, profile, loading } }> { children } </AuthContext.Provider>;
 };

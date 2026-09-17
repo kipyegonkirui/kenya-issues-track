@@ -1,0 +1,114 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    // --- users/{uid} ---
+    // Any signed-in user can read (needed to show reporter names, staff lists, etc).
+    // A user can create/update their OWN doc, but never their own role/department
+    // (that would be self-promotion). Only an admin can change role/department,
+    // or write/delete another user's doc entirely.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+                    && request.auth.uid == userId
+                    && request.resource.data.email is string
+                    && (!('role' in request.resource.data) || request.resource.data.role == 'user');
+
+      allow update: if isAdmin()
+                    || (isSignedIn()
+                        && request.auth.uid == userId
+                        && request.resource.data.role == resource.data.role
+                        && request.resource.data.department == resource.data.department);
+
+      allow delete: if isAdmin();
+    }
+
+    // --- departments/{id} ---
+    // Readable by any signed-in user (used to populate dropdowns), writable only by admins.
+    match /departments/{deptId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // --- issues/{issueId} ---
+    match /issues/{issueId} {
+      allow read: if true;
+
+      allow create: if isAdmin()
+                    || (isSignedIn()
+                        && request.resource.data.userId == request.auth.uid
+                        && request.resource.data.title is string
+                        && request.resource.data.title.size() > 0
+                        && request.resource.data.description is string
+                        && request.resource.data.county is string
+                        && request.resource.data.ward is string);
+
+      // Reporters can edit their own issue's content but not reassign ownership
+      // or flip its status; only an admin/staff can change status.
+      allow update: if isAdmin()
+                    || (isSignedIn()
+                        && resource.data.userId == request.auth.uid
+                        && request.resource.data.userId == resource.data.userId
+                        && request.resource.data.status == resource.data.status);
+
+      allow delete: if isAdmin();
+    }
+
+    // --- archived_issues/{id} ---
+    // Admin-only: issues get moved here off the live board and can be restored.
+    match /archived_issues/{issueId} {
+      allow read, write: if isAdmin();
+    }
+
+    // --- notifications/{id} ---
+    // A notification belongs to the user it's addressed to (userId is their email
+    // in the current schema). Only that user can read/mark it read; creation is
+    // left to admins/backend logic, not arbitrary users.
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.token.email;
+      allow update: if isAdmin()
+                    || (isSignedIn() && resource.data.userId == request.auth.token.email
+                        // only allow the recipient to toggle "read", not rewrite the notification
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']));
+      allow create: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // --- communityChats/{id} ---
+    // Public forum: any signed-in user can post; only the author (by uid) or an
+    // admin can remove a message; messages are immutable once posted.
+    match /communityChats/{msgId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() > 0;
+      allow update: if false;
+      allow delete: if isAdmin()
+                    || (isSignedIn() && resource.data.uid == request.auth.uid);
+    }
+
+    // --- onlineUsers/{uid}, typingStatus/{uid} ---
+    // Ephemeral presence docs, one per signed-in user, keyed by their own uid.
+    match /onlineUsers/{uid} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /typingStatus/{uid} {
+      allow read: if true;
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+  }
+}

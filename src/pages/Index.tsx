@@ -8,7 +8,7 @@ const Index = () => {
     <div className="min-h-screen bg-background">
       <Navigation />
       <Hero />
-      
+
       {/* Features Section */}
       <section className="py-20 bg-muted/30">
         <div className="container px-4">
